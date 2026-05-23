@@ -20,22 +20,17 @@ function resize() {
     w = canvas.width = window.innerWidth * dpr;
     h = canvas.height = window.innerHeight * dpr;
     c.scale(dpr, dpr);
-    
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
-    
     createStaticPoints();
 }
 
 function createStaticPoints() {
     staticPoints = [];
-    // توزيع نقاط بيضاء متزنة ومتباعدة في الخلفية
-    const numStaticPoints = Math.floor(window.innerWidth * window.innerHeight * 0.0004); 
+    // تقليل الكثافة عشان الشاشة تكون رايقة ومريحة للعين
+    const numStaticPoints = Math.floor(window.innerWidth * window.innerHeight * 0.0003); 
     for (let i = 0; i < numStaticPoints; i++) {
-        staticPoints.push({
-            x: Math.random() * window.innerWidth,
-            y: Math.random() * window.innerHeight
-        });
+        staticPoints.push({ x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight });
     }
 }
 
@@ -60,25 +55,65 @@ class Node {
     }
 }
 
-class Tentacle {
-    constructor(angleOffset) {
-        this.nodes = []; 
-        // 10 عقد فقط لكل رجل للحفاظ على خطوط مشدودة وقصيرة
-        for (let i = 0; i < 10; i++) this.nodes.push(new Node(mouse.x, mouse.y));
-        this.spring = 0.03 + Math.random() * 0.02; 
-        this.friction = 0.8;
-        this.angleOffset = angleOffset; // الزاوية الخاصة بالرجل حول الجسم
+class SpiderLeg {
+    constructor(side, index, totalLegsPerSide) {
+        this.nodes = [];
+        // 7 عقد لكل رجلเพื่อให้ حركتها متمفصلة مثل العنكبوت الحقيقي
+        for (let i = 0; i < 7; i++) this.nodes.push(new Node(mouse.x, mouse.y));
+        
+        this.spring = 0.06; 
+        this.friction = 0.75;
+        
+        // توزيع زوايا الأرجل بشكل طبيعي (أرجل للأمام وأرجل للخلف)
+        const baseAngle = side === 'left' ? Math.PI : 0;
+        const spread = Math.PI / 3; // مدى انتشار الأرجل
+        this.angle = baseAngle + (index / (totalLegsPerSide - 1) - 0.5) * spread;
+        
+        // إحداثيات خطوة الرجل الحالية والمستهدفة
+        this.stepX = mouse.x;
+        this.stepY = mouse.y;
     }
 
-    update(hX, hY) {
-        this.nodes[0].update(hX, hY, this.spring, this.friction);
-        for (let i = 1; i < this.nodes.length; i++) {
+    update(bodyX, bodyY, bodyAngle) {
+        // 1. تحديد قاعدة الرجل بناءً على جسم العنكبوت وزاويته
+        const legBaseX = bodyX + Math.cos(this.angle + bodyAngle) * 12;
+        const legBaseY = bodyY + Math.sin(this.angle + bodyAngle) * 12;
+        
+        // 2. حساب المكان المثالي البصري للرجل على الأرض (الهدف الطبيعي للرجل)
+        const idealX = legBaseX + Math.cos(this.angle + bodyAngle) * 70;
+        const idealY = legBaseY + Math.sin(this.angle + bodyAngle) * 70;
+        
+        // 3. ذكاء الخطوة: لو الرجل بعدت عن مكانها المثالي، تبحث عن أقرب نقطة بيضاء وتاخد خطوة سريعة لها
+        const distToIdeal = Math.hypot(this.stepX - idealX, this.stepY - idealY);
+        if (distToIdeal > 45) { 
+            let nearestPoint = { x: idealX, y: idealY };
+            let minDist = Infinity;
+            
+            for (let p of staticPoints) {
+                const d = Math.hypot(idealX - p.x, idealY - p.y);
+                if (d < minDist) {
+                    minDist = d;
+                    nearestPoint = p;
+                }
+            }
+            this.stepX = nearestPoint.x;
+            this.stepY = nearestPoint.y;
+        }
+
+        // 4. تحديث حركة العقد الفيزيائية (الرجل تتبع قاعدة الجسم وتثبت في نقطة الخطوة)
+        this.nodes[0].x = legBaseX;
+        this.nodes[0].y = legBaseY;
+        
+        for (let i = 1; i < this.nodes.length - 1; i++) {
             this.nodes[i].update(this.nodes[i-1].x, this.nodes[i-1].y, this.spring, this.friction);
         }
+        
+        // الطرف الأخير من الرجل يثبت تماماً في الأرض (نقطة الخطوة)
+        const last = this.nodes[this.nodes.length - 1];
+        last.update(this.stepX, this.stepY, 0.2, 0.6);
     }
 
-    draw(ctx, hX, hY) {
-        // رسم الخيط الرئيسي للرجل
+    draw(ctx) {
         ctx.beginPath(); 
         ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
         for (let i = 1; i < this.nodes.length - 1; i++) {
@@ -86,67 +121,61 @@ class Tentacle {
             let yc = (this.nodes[i].y + this.nodes[i+1].y) / 2;
             ctx.quadraticCurveTo(this.nodes[i].x, this.nodes[i].y, xc, yc);
         }
-        ctx.lineTo(this.nodes[this.nodes.length-1].x, this.nodes[this.nodes.length-1].y);
+        ctx.lineTo(this.nodes[this.nodes.length - 1].x, this.nodes[this.nodes.length - 1].y);
         
-        ctx.strokeStyle = 'rgba(74, 144, 226, 0.3)'; 
-        ctx.lineWidth = 1.2; 
+        ctx.strokeStyle = 'rgba(90, 160, 255, 0.75)'; // خطوط زرقاء واضحة ونحيفة
+        ctx.lineWidth = 1.8; 
         ctx.stroke();
-
-        // امتداد ذكي للطرف يربطه بالنقاط البيضاء القريبة في نفس اتجاه زاوية الرجل
-        const tip = this.nodes[this.nodes.length - 1];
-        
-        ctx.strokeStyle = 'rgba(74, 144, 226, 0.1)';
-        for (let p of staticPoints) {
-            const dist = Math.hypot(tip.x - p.x, tip.y - p.y);
-            // بيربط فقط بالنقاط القريبة جداً (أقل من 80 بكسل) عشان نمنع خيوط الـ Orbit الطويلة
-            if (dist < 80) { 
-                ctx.beginPath(); 
-                ctx.moveTo(tip.x, tip.y); 
-                ctx.lineTo(p.x, p.y); 
-                ctx.stroke();
-            }
-        }
     }
 }
 
-const tentacles = [];
-const numTentacles = 16; // 16 رجل متزنة جداً
-for (let i = 0; i < numTentacles; i++) {
-    const angleOffset = (i / numTentacles) * Math.PI * 2;
-    tentacles.push(new Tentacle(angleOffset)); 
-}
+// إنشاء العنكبوت بـ 8 أرجل فقط (4 يمين و 4 شمال) لتحديد المظهر
+const legs = [];
+for (let i = 0; i < 4; i++) legs.push(new SpiderLeg('left', i, 4));
+for (let i = 0; i < 4; i++) legs.push(new SpiderLeg('right', i, 4));
+
+let lastBodyX = mouse.x;
+let lastBodyY = mouse.y;
 
 function loop() {
-    // زيادة مسح الشاشة لـ 0.35 عشان يمسح الخيوط القديمة فوراً ويمنع تراكم الدوائر
-    c.fillStyle = 'rgba(3, 3, 5, 0.35)';
+    // مسح قوي لإزالة أي زحمة خيوط قديمة وضمان نظافة الشاشة
+    c.fillStyle = 'rgba(3, 3, 5, 0.45)';
     c.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
-    // رسم النقاط البيضاء في الخلفية بثبات
-    c.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    // رسم نقاط الخلفية بشكل هادئ جداً
+    c.fillStyle = 'rgba(255, 255, 255, 0.25)';
     for (let p of staticPoints) {
-        c.beginPath(); 
-        c.arc(p.x, p.y, 0.8, 0, Math.PI*2); 
-        c.fill();
+        c.beginPath(); c.arc(p.x, p.y, 0.8, 0, Math.PI*2); c.fill();
     }
 
-    // تتبع ناعم ومباشر للماوس بدون أي دورتين أو تموج ذاتي
-    mouse.x += (mouse.targetX - mouse.x) * 0.08; 
-    mouse.y += (mouse.targetY - mouse.y) * 0.08;
+    // حركة الجسم
+    mouse.x += (mouse.targetX - mouse.x) * 0.06; 
+    mouse.y += (mouse.targetY - mouse.y) * 0.06;
 
-    // الرأس هو مكان الماوس بالظبط
-    let headX = mouse.x;
-    let headY = mouse.y;
+    // حساب زاوية اتجاه جسم العنكبوت بناءً على حركته (عشان يلف بوجهه مع اتجاه الماوس)
+    const dx = mouse.x - lastBodyX;
+    const dy = mouse.y - lastBodyY;
+    const bodyAngle = Math.atan2(dy, dx);
+    
+    if (Math.hypot(dx, dy) > 0.5) {
+        lastBodyX += dx * 0.8;
+        lastBodyY += dy * 0.8;
+    }
 
-    tentacles.forEach(t => { 
-        t.update(headX, headY); 
-        t.draw(c, headX, headY); 
+    // تحديث ورسم الـ 8 أرجل الواضحة
+    legs.forEach(leg => { 
+        leg.update(mouse.x, mouse.y, bodyAngle); 
+        leg.draw(c); 
     });
 
-    // رسم السنتر الأبيض المضيء
+    // رسم جسم العنكبوت (نواة بيضاء ممتدة قليلاً كالرأس والصدر)
     c.beginPath(); 
-    c.arc(headX, headY, 3.5, 0, Math.PI*2);
+    c.arc(mouse.x, mouse.y, 5, 0, Math.PI*2);
     c.fillStyle = '#ffffff'; 
+    c.shadowBlur = 10;
+    c.shadowColor = '#5aa0ff';
     c.fill();
+    c.shadowBlur = 0;
 
     window.requestAnimFrame(loop);
 }
