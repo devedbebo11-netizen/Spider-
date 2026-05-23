@@ -1,173 +1,184 @@
 const canvas = document.getElementById('spiderCanvas');
 const ctx = canvas.getContext('2d');
 
-// ضبط أبعاد الـ Canvas لتناسب الشاشة بالكامل
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
+function resize() {
+    canvas.width = window.innerWidth * window.devicePixelRatio;
+    canvas.height = window.innerHeight * window.devicePixelRatio;
+    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
 }
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
+resize();
+window.addEventListener('resize', resize);
 
-// إحداثيات الماوس (تبدأ من مركز الشاشة)
-const mouse = {
-    x: window.innerWidth / 2,
-    y: window.innerHeight / 2
-};
+const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2, targetX: window.innerWidth / 2, targetY: window.innerHeight / 2 };
 
 window.addEventListener('mousemove', (e) => {
-    mouse.x = e.clientX;
-    mouse.y = e.clientY;
+    mouse.targetX = e.clientX;
+    mouse.targetY = e.clientY;
 });
 
-// تتبع اللمس للموبايل
 window.addEventListener('touchmove', (e) => {
-    if (e.touches.length > 0) {
-        mouse.x = e.touches[0].clientX;
-        mouse.y = e.touches[0].clientY;
+    if(e.touches.length > 0) {
+        mouse.targetX = e.touches[0].clientX;
+        mouse.targetY = e.touches[0].clientY;
     }
-});
+}, { passive: true });
 
-// --- كلاس يمثل قطعة واحدة من رجل العنكبوت ---
-class Segment {
-    constructor(x, y, length, angle) {
+// كلاس النقطة الفيزيائية (Verlet Particle)
+class Particle {
+    constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.length = length;
-        this.angle = angle;
-        this.nextX = this.x + Math.cos(this.angle) * this.length;
-        this.nextY = this.y + Math.sin(this.angle) * this.length;
+        this.oldX = x;
+        this.oldY = y;
     }
-
-    // حساب الاتجاه نحو الهدف (الحركة العكسية)
-    follow(targetX, targetY) {
-        const dx = targetX - this.x;
-        const dy = targetY - this.y;
-        this.angle = Math.atan2(dy, dx);
-        
-        // شد القطعة باتجاه الهدف
-        this.x = targetX - Math.cos(this.angle) * this.length;
-        this.y = targetY - Math.sin(this.angle) * this.length;
-    }
-
-    update() {
-        this.nextX = this.x + Math.cos(this.angle) * this.length;
-        this.nextY = this.y + Math.sin(this.angle) * this.length;
+    update(gravityX, gravityY) {
+        const vx = (this.x - this.oldX) * 0.95; // احتكاك خفيف للانسيابية
+        const vy = (this.y - this.oldY) * 0.95;
+        this.oldX = this.x;
+        this.oldY = this.y;
+        this.x += vx + gravityX;
+        this.y += vy + gravityY;
     }
 }
 
-// --- كلاس يمثل رجل واحدة (مجموعة قطع متصلة) ---
-class Leg {
-    constructor(baseX, baseY, numSegments, segmentLength) {
-        this.segments = [];
-        let currentX = baseX;
-        let currentY = baseY;
-
-        for (let i = 0; i < numSegments; i++) {
-            this.segments.push(new Segment(currentX, currentY, segmentLength, 0));
-            currentX = this.segments[i].nextX;
-            currentY = this.segments[i].nextY;
+// كلاس الحبل/الرجل المتقدمة
+class Tentacle {
+    constructor(baseX, baseY, length, count) {
+        this.particles = [];
+        this.segLength = length / count;
+        for (let i = 0; i < count; i++) {
+            this.particles.push(new Particle(baseX, baseY + i * this.segLength));
         }
     }
 
-    // تحديث حركة الرجل بناءً على مكان الرأس (Target) ومكان التثبيت (Base)
-    update(targetX, targetY, baseX, baseY) {
-        // 1. الرأس يتبع الهدف (الماوس أو مركز جسم العنكبوت)
-        let total = this.segments.length;
-        this.segments[total - 1].follow(targetX, targetY);
-        this.segments[total - 1].update();
+    update(baseX, baseY, targetX, targetY) {
+        // تثبيت القاعدة في الجسم
+        this.particles[0].x = baseX;
+        this.particles[0].y = baseY;
 
-        for (let i = total - 2; i >= 0; i--) {
-            this.segments[i].follow(this.segments[i + 1].x, this.segments[i + 1].y);
-            this.segments[i].update();
+        // تحديث الفيزياء لكل نقطة
+        for (let i = 1; i < this.particles.length; i++) {
+            this.particles[i].update(0, 0.1); // جاذبية خفيفة جداً للأسفل لإعطاء وزن
         }
 
-        // 2. إعادة تثبيت قاعدة الرجل في جسم العنكبوت (Forward Kinematics Pass)
-        this.segments[0].x = baseX;
-        this.segments[0].y = baseY;
-        this.segments[0].update();
+        // حل القيود الفيزيائية (Relaxation Loops) لجعل الحركة ناعمة وسائلة كأنها حبل حقيقي
+        for (let loops = 0; loops < 6; loops++) {
+            // ربط النقاط ببعضها بالدور
+            for (let i = 0; i < this.particles.length - 1; i++) {
+                const p1 = this.particles[i];
+                const p2 = this.particles[i+1];
+                const dx = p2.x - p1.x;
+                const dy = p2.y - p1.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const diff = this.segLength - dist;
+                const percent = (diff / dist) * 0.5;
+                const offsetX = dx * percent;
+                const offsetY = dy * percent;
 
-        for (let i = 1; i < total; i++) {
-            this.segments[i].x = this.segments[i - 1].nextX;
-            this.segments[i].y = this.segments[i - 1].nextY;
-            this.segments[i].update();
+                if (i !== 0) {
+                    p1.x -= offsetX;
+                    p1.y -= offsetY;
+                }
+                p2.x += offsetX;
+                p2.y += offsetY;
+            }
+            
+            // سحب طرف الرجل الأخير برفق ناحية الهدف الخارجي (تأثير الانتشار)
+            const last = this.particles[this.particles.length - 1];
+            last.x += (targetX - last.x) * 0.1;
+            last.y += (targetY - last.y) * 0.1;
         }
     }
 
     draw(ctx) {
         ctx.beginPath();
-        ctx.moveTo(this.segments[0].x, this.segments[0].y);
-        for (let i = 0; i < this.segments.length; i++) {
-            ctx.lineTo(this.segments[i].nextX, this.segments[i].nextY);
+        ctx.moveTo(this.particles[0].x, this.particles[0].y);
+        
+        // رسم المنحنيات باستخدام البيزير ليكون الانحناء ناعم بدون زوايا حادة
+        for (let i = 1; i < this.particles.length - 1; i++) {
+            const xc = (this.particles[i].x + this.particles[i + 1].x) / 2;
+            const yc = (this.particles[i].y + this.particles[i + 1].y) / 2;
+            ctx.quadraticCurveTo(this.particles[i].x, this.particles[i].y, xc, yc);
         }
-        ctx.strokeStyle = 'rgba(100, 150, 255, 0.7)'; // لون أزرق خفيف مضيء
-        ctx.lineWidth = 3;
+        
+        ctx.lineTo(this.particles[this.particles.length - 1].x, this.particles[this.particles.length - 1].y);
+        
+        // ستايل النيون الأزرق المضيء عالي الجودة
+        ctx.strokeStyle = 'rgba(120, 180, 255, 0.8)';
+        ctx.lineWidth = 2.5;
         ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
         ctx.stroke();
     }
 }
 
-// --- كلاس العنكبوت بالكامل ---
-class Spider {
+class PremiumSpider {
     constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.legs = [];
-        this.numLegs = 8; // عدد الأرجل
+        this.tentacles = [];
+        this.numLegs = 12; // زيادة عدد الأرجل لتفاصيل أغنى كالفيديو
 
-        // إنشاء الأرجل حول الجسم
         for (let i = 0; i < this.numLegs; i++) {
-            // 10 قطع في كل رجل، طول القطعة 15 بكسل
-            this.legs.push(new Leg(this.x, this.y, 10, 15)); 
+            // كل رجل طولها 180 بكسل ومكونة من 16 نقطة فيزيائية للحصول على مرونة فائقة
+            this.tentacles.push(new Tentacle(this.x, this.y, 180, 16)); 
         }
     }
 
     update(targetX, targetY) {
-        // حركة ناعمة للجسم ليلحق الماوس (Lerp)
-        this.x += (targetX - this.x) * 0.1;
-        this.y += (targetY - this.y) * 0.1;
+        // حركة مرنة جداً للجسم يتبع الماوس بسلاسة (Ease-out)
+        this.x += (targetX - this.x) * 0.08;
+        this.y += (targetY - this.y) * 0.08;
 
-        // تحديث كل رجل بناءً على زاوية انتشارها حول الجسم
-        this.legs.forEach((leg, index) => {
-            const angle = (index / this.numLegs) * Math.PI * 2;
-            // تحديد أطراف الأرجل الخارجية عشان تتحرك بشكل طبيعي
-            const targetDist = 120; 
-            const legTargetX = targetX + Math.cos(angle) * targetDist;
-            const legTargetY = targetY + Math.sin(angle) * targetDist;
+        this.tentacles.forEach((t, i) => {
+            const angle = (i / this.numLegs) * Math.PI * 2;
+            // حساب مكان انتشار أطراف الأرجل في الفراغ
+            const radius = 140; 
+            const tTargetX = targetX + Math.cos(angle) * radius;
+            const tTargetY = targetY + Math.sin(angle) * radius;
 
-            leg.update(legTargetX, legTargetY, this.x, this.y);
+            t.update(this.x, this.y, tTargetX, tTargetY);
         });
     }
 
     draw(ctx) {
-        // رسم الأرجل أولاً
-        this.legs.forEach(leg => leg.draw(ctx));
+        // تفعيل الدمج اللوني المضيء (Screen Mode) زي الألعاب الفخمة
+        ctx.globalCompositeOperation = 'screen';
+        
+        // عمل توهج نيون أزرق حول الأرجل والجسم
+        ctx.shadowBlur = 18;
+        ctx.shadowColor = 'rgba(0, 100, 255, 0.9)';
 
-        // رسم جسم العنكبوت (النقطة المضيئة)
+        this.tentacles.forEach(t => t.draw(ctx));
+
+        // رسم قلب العنكبوت المضيء (الرأس)
         ctx.beginPath();
-        ctx.arc(this.x, this.y, 10, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
         ctx.fillStyle = '#ffffff';
-        ctx.shadowBlur = 15;
-        ctx.shadowColor = '#6495ed'; // توهج أزرق
+        ctx.shadowBlur = 25;
+        ctx.shadowColor = '#ffffff';
         ctx.fill();
-        ctx.shadowBlur = 0; // إعادة تعيين التوهج عشان ما يبوظ باقي الرسم
+
+        // إعادة تعيين الإعدادات للافتراضي حتى لا تؤثر على باقي الأنميشن
+        ctx.shadowBlur = 0;
+        ctx.globalCompositeOperation = 'source-over';
     }
 }
 
-// إنشاء نسخة من العنكبوت في مركز الشاشة
-const spider = new Spider(canvas.width / 2, canvas.height / 2);
+const spider = new PremiumSpider(window.innerWidth / 2, window.innerHeight / 2);
 
-// حلقة الأنيكيشن المستمرة
-function animate() {
-    // رسم طبقة شفافة سوداء لعمل تأثير الـ Trail (التدرج أو الذيل خلف الحركة)
-    ctx.fillStyle = 'rgba(5, 5, 8, 0.3)';
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+function loop() {
+    // خلفية سوداء شبه شفافة لترك أثر (Motion Blur / Trail) سينمائي خلف الحركة
+    ctx.fillStyle = 'rgba(3, 3, 5, 0.25)';
+    ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+
+    // تنعيم حركة الماوس
+    mouse.x += (mouse.targetX - mouse.x) * 0.1;
+    mouse.y += (mouse.targetY - mouse.y) * 0.1;
 
     spider.update(mouse.x, mouse.y);
     spider.draw(ctx);
 
-    requestAnimationFrame(animate);
+    requestAnimationFrame(loop);
 }
 
-animate();
+loop();
