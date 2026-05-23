@@ -16,16 +16,20 @@ function init(elemId) {
 }
 
 function resize() {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
+    const dpr = window.devicePixelRatio || 1;
+    w = canvas.width = window.innerWidth * dpr;
+    h = canvas.height = window.innerHeight * dpr;
+    c.scale(dpr, dpr);
+    canvas.style.width = window.innerWidth + 'px';
+    canvas.style.height = window.innerHeight + 'px';
     createStaticPoints();
 }
 
 function createStaticPoints() {
     staticPoints = [];
-    const numStaticPoints = Math.floor(w * h * 0.0004); // كثافة متوازنة
+    const numStaticPoints = Math.floor(window.innerWidth * window.innerHeight * 0.0003); 
     for (let i = 0; i < numStaticPoints; i++) {
-        staticPoints.push({ x: Math.random() * w, y: Math.random() * h });
+        staticPoints.push({ x: Math.random() * window.innerWidth, y: Math.random() * window.innerHeight });
     }
 }
 
@@ -34,99 +38,129 @@ init('canvas');
 const updateMouse = (x, y) => { mouse.targetX = x; mouse.targetY = y; };
 window.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
 window.addEventListener('touchmove', e => { if(e.touches.length > 0) updateMouse(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
-mouse.x = mouse.targetX = w / 2; mouse.y = mouse.targetY = h / 2;
 
-class Node {
-    constructor(x, y) { this.x = x; this.y = y; this.vx = 0; this.vy = 0; }
-    update(tX, tY, spring, friction) {
-        this.vx += (tX - this.x) * spring; this.vy += (tY - this.y) * spring;
-        this.vx *= friction; this.vy *= friction;
-        this.x += this.vx; this.y += this.vy;
+mouse.x = mouse.targetX = window.innerWidth / 2; 
+mouse.y = mouse.targetY = window.innerHeight / 2;
+
+// --- كلاس القطعة المستقيمة الصارمة (IK Segment) ---
+class Segment {
+    constructor(length, angle) {
+        this.x = 0; this.y = 0;
+        this.length = length;
+        this.angle = angle;
+        this.nextX = 0; this.nextY = 0;
+    }
+    update() {
+        this.nextX = this.x + Math.cos(this.angle) * this.length;
+        this.nextY = this.y + Math.sin(this.angle) * this.length;
     }
 }
 
-class Tentacle {
-    constructor(angleOffset) {
-        this.nodes = [];
-        for (let i = 0; i < 15; i++) this.nodes.push(new Node(mouse.x, mouse.y));
-        this.spring = 0.03 + Math.random() * 0.03; this.friction = 0.8 + Math.random() * 0.05;
-        this.angleOffset = angleOffset; // زاوية الرجل الفريدة
+// --- كلاس الرجل الهندسي الصارم ---
+class TightLeg {
+    constructor(angleOffset, numSegments, segmentLength) {
+        this.segments = [];
+        this.angleOffset = angleOffset;
+        for (let i = 0; i < numSegments; i++) {
+            this.segments.push(new Segment(segmentLength, angleOffset));
+        }
     }
 
-    update(hX, hY) {
-        // --- تعديل هندسي حيوي هنا ---
-        // بدل ما أول عقدة تلحق (headX, headY) مباشرة، هي بتلحق نقطة حول الرأس
-        // بناءً على زاوية الرجل الفريدة ومسافة فاصلة 15 بكسل.
-        const legBaseX = hX + Math.cos(this.angleOffset) * 15;
-        const legBaseY = hY + Math.sin(this.angleOffset) * 15;
-        this.nodes[0].update(legBaseX, legBaseY, this.spring, this.friction);
+    // الحسابات العكسية الصارمة تمنع الأرجل من التجمع عشوائياً
+    update(baseX, baseY, targetX, targetY) {
+        let total = this.segments.length;
+        
+        // 1. الطرف يلحق الهدف الخارجي المحدد له
+        let last = this.segments[total - 1];
+        let dx = targetX - last.x;
+        let dy = targetY - last.y;
+        last.angle = Math.atan2(dy, dx);
+        last.x = targetX - Math.cos(last.angle) * last.length;
+        last.y = targetY - Math.sin(last.angle) * last.length;
+        last.update();
 
-        for (let i = 1; i < this.nodes.length; i++) {
-            this.nodes[i].update(this.nodes[i-1].x, this.nodes[i-1].y, this.spring, this.friction);
+        for (let i = total - 2; i >= 0; i--) {
+            let nextSeg = this.segments[i + 1];
+            this.segments[i].angle = Math.atan2(nextSeg.y - this.segments[i].y, nextSeg.x - this.segments[i].x);
+            this.segments[i].x = nextSeg.x - Math.cos(this.segments[i].angle) * this.segments[i].length;
+            this.segments[i].y = nextSeg.y - Math.sin(this.segments[i].angle) * this.segments[i].length;
+            this.segments[i].update();
+        }
+
+        // 2. إعادة تثبيت القاعدة إجبارياً في جسم العنكبوت لمنع الانفصال والمط
+        this.segments[0].x = baseX;
+        this.segments[0].y = baseY;
+        this.segments[0].update();
+
+        for (let i = 1; i < total; i++) {
+            this.segments[i].x = this.segments[i - 1].nextX;
+            this.segments[i].y = this.segments[i - 1].nextY;
+            this.segments[i].update();
         }
     }
 
     draw(ctx) {
-        // رسم الخيط الرئيسي للرجل
-        ctx.beginPath(); ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
-        for (let i = 1; i < this.nodes.length - 1; i++) {
-            let xc = (this.nodes[i].x + this.nodes[i+1].x) / 2;
-            let yc = (this.nodes[i].y + this.nodes[i+1].y) / 2;
-            ctx.quadraticCurveTo(this.nodes[i].x, this.nodes[i].y, xc, yc);
+        ctx.beginPath();
+        ctx.moveTo(this.segments[0].x, this.segments[0].y);
+        for (let i = 0; i < this.segments.length; i++) {
+            ctx.lineTo(this.segments[i].nextX, this.segments[i].nextY);
         }
-        ctx.lineTo(this.nodes[this.nodes.length-1].x, this.nodes[this.nodes.length-1].y);
-        ctx.strokeStyle = 'rgba(74, 144, 226, 0.4)'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.strokeStyle = 'rgba(74, 144, 226, 0.65)';
+        ctx.lineWidth = 1.5;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.stroke();
 
-        // ربط الطرف بالنقاط الخلفية بذكاء
-        const tip = this.nodes[this.nodes.length - 1];
-        ctx.strokeStyle = 'rgba(74, 144, 226, 0.1)';
+        // رسم النقطة في نهاية الرجل وربطها بالنقاط البيضاء القريبة فقط
+        let last = this.segments[this.segments.length - 1];
+        ctx.strokeStyle = 'rgba(74, 144, 226, 0.15)';
         for (let p of staticPoints) {
-            const dist = Math.hypot(tip.x - p.x, tip.y - p.y);
-            if (dist < 100) { 
-                ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+            let d = Math.hypot(last.nextX - p.x, last.nextY - p.y);
+            if (d < 60) {
+                ctx.beginPath(); ctx.moveTo(last.nextX, last.nextY); ctx.lineTo(p.x, p.y); ctx.stroke();
             }
         }
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; ctx.beginPath(); ctx.arc(tip.x, tip.y, 2.5, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(last.nextX, last.nextY, 2, 0, Math.PI*2); ctx.fill();
     }
 }
 
-const tentacles = [];
-const numTentacles = 12; // تقليل عدد الأرجل لتفاصيل أوضح
-for (let i = 0; i < numTentacles; i++) {
-    // حساب زاوية فريدة لكل رجل لضمان انتشار دائري متساوي
-    const angleOffset = (i / numTentacles) * Math.PI * 2;
-    tentacles.push(new Tentacle(angleOffset)); 
+// إنشاء 8 أرجل موزعة بدقة متناهية (4 يمين و4 شمال)
+const legs = [];
+const numLegs = 8;
+for (let i = 0; i < numLegs; i++) {
+    // توزيع الأرجل على محيط الجسم بشكل دائري منتظم ثابت
+    let angleOffset = (i / numLegs) * Math.PI * 2;
+    // كل رجل مكونة من 4 قطع فقط، طول كل قطعة 15 بكسل (للحفاظ على قوام مشدود)
+    legs.push(new TightLeg(angleOffset, 4, 15)); 
 }
-let angle = 0;
 
 function loop() {
-    c.fillStyle = 'rgba(3, 3, 5, 0.25)'; // تأثير Trail متوازن
-    c.fillRect(0, 0, w, h);
+    // زيادة مسح الفريمات لـ 0.45 لقتل الهالات والخطوط القديمة فوراً
+    c.fillStyle = 'rgba(3, 3, 5, 0.45)';
+    c.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
-    // رسم نقاط الخلفية
-    c.fillStyle = 'rgba(255, 255, 255, 0.4)';
+    // رسم النقاط البيضاء
+    c.fillStyle = 'rgba(255, 255, 255, 0.3)';
     for (let p of staticPoints) {
         c.beginPath(); c.arc(p.x, p.y, 0.8, 0, Math.PI*2); c.fill();
     }
 
-    // تنعيم حركة مركز الماوس
-    mouse.x += (mouse.targetX - mouse.x) * 0.1; 
-    mouse.y += (mouse.targetY - mouse.y) * 0.1;
-    
-    // حركة تموجية بسيطة للرأس
-    angle += 0.05;
-    let headX = mouse.x + Math.cos(angle) * 10; 
-    let headY = mouse.y + Math.sin(angle) * 10;
+    // تتبع حاد ومباشر وسريع للماوس
+    mouse.x += (mouse.targetX - mouse.x) * 0.12; 
+    mouse.y += (mouse.targetY - mouse.y) * 0.12;
 
-    // تحديث ورسم كل رجل منفصلة
-    tentacles.forEach(t => { 
-        t.update(headX, headY); 
-        t.draw(c); 
+    legs.forEach(leg => {
+        // حساب المكان الأقصى المسموح لكل رجل للانتشار فيه حول الجسم لمنع التجمع والسيحان
+        let targetX = mouse.x + Math.cos(leg.angleOffset) * 55;
+        let targetY = mouse.y + Math.sin(leg.angleOffset) * 55;
+        
+        leg.update(mouse.x, mouse.y, targetX, targetY);
+        leg.draw(c);
     });
 
-    // رسم النواة المركزية المضيئة
-    c.beginPath(); c.arc(headX, headY, 5, 0, Math.PI*2);
-    c.fillStyle = '#ffffff'; c.shadowBlur = 20; c.shadowColor = '#6495ed'; c.fill(); c.shadowBlur = 0;
+    // رسم مركز العنكبوت المضيء
+    c.beginPath(); c.arc(mouse.x, mouse.y, 4, 0, Math.PI*2);
+    c.fillStyle = '#ffffff'; c.fill();
 
     window.requestAnimFrame(loop);
 }
