@@ -22,10 +22,9 @@ function init(elemId) {
     return { c: c, canvas: canvas };
 }
 
-// زيادة توزيع النقاط في الشاشة كلها عشان العنكبوت يتمدد لها
 function createPoints() {
     targetPoints = [];
-    const numPoints = Math.floor(w * h * 0.0003);
+    const numPoints = Math.floor(w * h * 0.00025);
     for (let i = 0; i < numPoints; i++) {
         targetPoints.push({ x: Math.random() * w, y: Math.random() * h });
     }
@@ -66,7 +65,7 @@ window.addEventListener('touchmove', e => {
 class ElectricalTentacle {
     constructor(angle) {
         this.angle = angle;
-        this.length = 14; // زيادة العقد لـ 14 عشان الرجل تطول وتفضل مرنة وانسيابية
+        this.length = 12; // عدد عقد مثالي للنعومة والتمدد
         this.nodes = [];
         for(let i=0; i<this.length; i++) {
             this.nodes.push({x: window.innerWidth/2, y: window.innerHeight/2, vx: 0, vy: 0});
@@ -77,21 +76,20 @@ class ElectricalTentacle {
         this.nodes[0].x = headX;
         this.nodes[0].y = headY;
 
-        // الحسبة الجديدة لتكبير الأرجل وجعلها تفرش لمسافات بعيدة
+        // المعادلة الذهبية الموزونة: طول مفرود وكبير بس محكوم ومستحيل يكسر
         for (let i = 1; i < this.length; i++) {
             let node = this.nodes[i];
             let prev = this.nodes[i - 1];
             
-            // ضربنا الـ speed في 4.5 وزودنا مسافة ثابتة (25 بكسل) لكل عقدة 
-            // عشان الأرجل تفتح وتفرش لبرة مجرد ما الماوس يتحرك حركة بسيطة
-            let targetX = prev.x + Math.cos(this.angle) * (speed * 4.5 + 25);
-            let targetY = prev.y + Math.sin(this.angle) * (speed * 4.5 + 25);
+            // هنا السر: تمدد تدريجي مريح ومبني على طول ثابت (22) + ديناميكي آمن (speed * 1.8)
+            let targetX = prev.x + Math.cos(this.angle) * (22 + speed * 1.8);
+            let targetY = prev.y + Math.sin(this.angle) * (22 + speed * 1.8);
             
-            // فيزياء مرنة وسلسة للتحكم في الأبعاد الجديدة
-            node.vx += (targetX - node.x) * 0.06;
-            node.vy += (targetY - node.y) * 0.06;
-            node.vx *= 0.72;
-            node.vy *= 0.72;
+            // فيزياء مرنة ناعمة جداً تمنع الشطحات المفاجئة والعبث البصري
+            node.vx += (targetX - node.x) * 0.1; 
+            node.vy += (targetY - node.y) * 0.1;
+            node.vx *= 0.65; // كبح السرعة الزائدة للحفاظ على انسيابية المنحنى
+            node.vy *= 0.65;
             
             node.x += node.vx;
             node.y += node.vy;
@@ -107,15 +105,15 @@ class ElectricalTentacle {
             ctx.quadraticCurveTo(this.nodes[i].x, this.nodes[i].y, xc, yc);
         }
         ctx.lineTo(this.nodes[this.length-1].x, this.nodes[this.length-1].y);
-        ctx.strokeStyle = 'rgba(90, 165, 250, 0.5)';
-        ctx.lineWidth = 1.8; // تظليل الخط أثقل سيكة عشان يبان فخم وميختفيش في المسافات البعيدة
+        ctx.strokeStyle = 'rgba(90, 165, 250, 0.45)';
+        ctx.lineWidth = 1.4;
         ctx.stroke();
 
-        // زيادة مدى اتصال أطراف العنكبوت بالشبكة الخارجية لـ 150 بكسل عشان يلقط النقط البعيدة
+        // التوصيل العاقل والذكي بالنقاط الخلفية
         let tip = this.nodes[this.length - 1];
-        ctx.strokeStyle = 'rgba(90, 165, 250, 0.18)';
+        ctx.strokeStyle = 'rgba(90, 165, 250, 0.15)';
         for(let p of targetPoints) {
-            if(dist(tip.x, tip.y, p.x, p.y) < 150) { 
+            if(dist(tip.x, tip.y, p.x, p.y) < 90) { // مسافة شبكة معتدلة ورايقة
                 ctx.beginPath();
                 ctx.moveTo(tip.x, tip.y);
                 ctx.lineTo(p.x, p.y);
@@ -125,7 +123,7 @@ class ElectricalTentacle {
     }
 }
 
-// 12 رجل متوازنة عشان يفضل الشكل نظيف وفخم
+// 12 رجل متناسقة وموزعة بدقة دائرية هندسية
 const tentacles = [];
 const totalTentacles = 12;
 for (let i = 0; i < totalTentacles; i++) {
@@ -133,19 +131,20 @@ for (let i = 0; i < totalTentacles; i++) {
 }
 
 function loop() {
-    c.fillStyle = 'rgba(30, 30, 30, 0.22)'; // تقليل المسح سيكة عشان يدي الـ Trail مظهر أطول وأضخم
+    // مسح ناعم ومظبوط بالملي يمنع بقاء أي خيوط ميتة في الخلفية
+    c.fillStyle = 'rgba(30, 30, 30, 0.25)';
     c.fillRect(0, 0, w, h);
 
     for (let p of targetPoints) {
-        c.fillStyle = 'rgba(255,255,255,0.35)';
-        c.beginPath(); c.arc(p.x, p.y, 0.9, 0, Math.PI * 2); c.fill();
+        c.fillStyle = 'rgba(255,255,255,0.3)';
+        c.beginPath(); c.arc(p.x, p.y, 0.8, 0, Math.PI * 2); c.fill();
     }
 
     if (mouse.x && last_mouse.x) {
         let speed = dist(last_mouse.x, last_mouse.y, mouse.x, mouse.y);
         
-        // رفعنا سقف السرعة الأقصى لـ 90 عشان يمد براحته لأطراف الشاشة الكبيرة
-        if(speed > 90) speed = 90; 
+        // وضع كابح سقف أقصى للسرعة لمنع الانفجار العبثي للخطوط
+        if(speed > 45) speed = 45; 
 
         tentacles.forEach(t => {
             t.update(mouse.x, mouse.y, speed);
@@ -153,15 +152,14 @@ function loop() {
         });
 
         c.beginPath();
-        c.arc(mouse.x, mouse.y, 4.5, 0, Math.PI * 2);
+        c.arc(mouse.x, mouse.y, 4, 0, Math.PI * 2);
         c.fillStyle = '#ffffff';
         c.fill();
     }
 
-    // تنعيم حركة التراجع والرجوع للسنتر عند التوقف
     if (mouse.x && last_mouse.x) {
-        last_mouse.x += (mouse.x - last_mouse.x) * 0.08;
-        last_mouse.y += (mouse.y - last_mouse.y) * 0.08;
+        last_mouse.x += (mouse.x - last_mouse.x) * 0.1;
+        last_mouse.y += (mouse.y - last_mouse.y) * 0.1;
     }
 
     window.requestAnimFrame(loop);
