@@ -4,143 +4,173 @@ window.requestAnimFrame = (function() {
 })();
 
 let canvas, c, w, h;
-let mouse = { x: false, y: false, targetX: 0, targetY: 0 };
+let mouse = { x: false, y: false };
 let last_mouse = {};
-let stars = [];
+let targetPoints = [];
 
 function init(elemId) {
     canvas = document.getElementById(elemId);
     c = canvas.getContext('2d');
-    resize();
-    window.addEventListener('resize', resize);
+    
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    
+    c.fillStyle = "rgba(30,30,30,1)";
+    c.fillRect(0, 0, w, h);
+    
+    createPoints();
     return { c: c, canvas: canvas };
 }
 
-function resize() {
-    w = canvas.width = window.innerWidth;
-    h = canvas.height = window.innerHeight;
-    createStars();
+// زيادة توزيع النقاط في الشاشة كلها عشان العنكبوت يتمدد لها
+function createPoints() {
+    targetPoints = [];
+    const numPoints = Math.floor(w * h * 0.0003);
+    for (let i = 0; i < numPoints; i++) {
+        targetPoints.push({ x: Math.random() * w, y: Math.random() * h });
+    }
 }
 
-// إنشاء نجوم هادئة في الخلفية متباعدة ومريحة للعين
-function createStars() {
-    stars = [];
-    const numStars = Math.floor(w * h * 0.0002); // كثافة قليلة وفخمة
-    for (let i = 0; i < numStars; i++) {
-        stars.push({
-            x: Math.random() * w,
-            y: Math.random() * h,
-            brightness: Math.random() * 0.4 + 0.2
-        });
-    }
+function dist(x1, y1, x2, y2) {
+    return Math.hypot(x2 - x1, y2 - y1);
 }
 
 init('canvas');
 
-window.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
-window.addEventListener('touchmove', e => { 
-    if(e.touches.length > 0) updateMouse(e.touches[0].clientX, e.touches[0].clientY); 
+window.addEventListener('mousemove', e => {
+    if (!mouse.x) {
+        last_mouse.x = e.clientX;
+        last_mouse.y = e.clientY;
+    } else {
+        last_mouse.x = mouse.x;
+        last_mouse.y = mouse.y;
+    }
+    mouse.x = e.clientX;
+    mouse.y = e.clientY;
+});
+
+window.addEventListener('touchmove', e => {
+    if(e.touches.length > 0) {
+        if (!mouse.x) {
+            last_mouse.x = e.touches[0].clientX;
+            last_mouse.y = e.touches[0].clientY;
+        } else {
+            last_mouse.x = mouse.x;
+            last_mouse.y = mouse.y;
+        }
+        mouse.x = e.touches[0].clientX;
+        mouse.y = e.touches[0].clientY;
+    }
 }, { passive: true });
 
-function updateMouse(x, y) {
-    if (!mouse.x) {
-        last_mouse.x = x; last_mouse.y = y;
-    } else {
-        last_mouse.x = mouse.x; last_mouse.y = mouse.y;
-    }
-    mouse.x = x;
-    mouse.y = y;
-}
-
-class LightBolt {
+class ElectricalTentacle {
     constructor(angle) {
         this.angle = angle;
-        this.segments = 5; // عدد قطع قليل جداً عشان نمنع الزحمة والخيوط الكتير
+        this.length = 14; // زيادة العقد لـ 14 عشان الرجل تطول وتفضل مرنة وانسيابية
+        this.nodes = [];
+        for(let i=0; i<this.length; i++) {
+            this.nodes.push({x: window.innerWidth/2, y: window.innerHeight/2, vx: 0, vy: 0});
+        }
     }
 
-    draw(ctx, headX, headY, speed) {
-        // طول النبضة بيعتمد على سرعة الماوس، لو الماوس وقف الطول بيبقى 0 وتختفي فوراً
-        let currentLength = speed * 1.5; 
-        if (currentLength < 5) return; // إخفاء النبضة تماماً لو الحركة بطيئة
+    update(headX, headY, speed) {
+        this.nodes[0].x = headX;
+        this.nodes[0].y = headY;
 
-        let currentX = headX;
-        let currentY = headY;
-
-        ctx.beginPath();
-        ctx.moveTo(currentX, currentY);
-
-        for (let i = 0; i < this.segments; i++) {
-            // إضافة كسر فيزياء البرق (انحناء حاد ونظيف مش حلزوني)
-            let segX = currentX + Math.cos(this.angle) * (currentLength / this.segments);
-            let segY = currentY + Math.sin(this.angle) * (currentLength / this.segments);
+        // الحسبة الجديدة لتكبير الأرجل وجعلها تفرش لمسافات بعيدة
+        for (let i = 1; i < this.length; i++) {
+            let node = this.nodes[i];
+            let prev = this.nodes[i - 1];
             
-            // زجزاج خفيف جداً يدي إحساس الكهرباء النظيفة
-            if (i > 0 && i < this.segments - 1) {
-                segX += (Math.random() - 0.5) * 6;
-                segY += (Math.random() - 0.5) * 6;
-            }
-
-            ctx.lineTo(segX, segY);
-            currentX = segX;
-            currentY = segY;
+            // ضربنا الـ speed في 4.5 وزودنا مسافة ثابتة (25 بكسل) لكل عقدة 
+            // عشان الأرجل تفتح وتفرش لبرة مجرد ما الماوس يتحرك حركة بسيطة
+            let targetX = prev.x + Math.cos(this.angle) * (speed * 4.5 + 25);
+            let targetY = prev.y + Math.sin(this.angle) * (speed * 4.5 + 25);
+            
+            // فيزياء مرنة وسلسة للتحكم في الأبعاد الجديدة
+            node.vx += (targetX - node.x) * 0.06;
+            node.vy += (targetY - node.y) * 0.06;
+            node.vx *= 0.72;
+            node.vy *= 0.72;
+            
+            node.x += node.vx;
+            node.y += node.vy;
         }
+    }
 
-        ctx.strokeStyle = 'rgba(100, 180, 255, 0.6)'; // لون أزرق بريميوم شفاف ونحيف
-        ctx.lineWidth = 1.2;
+    draw(ctx) {
+        ctx.beginPath();
+        ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
+        for (let i = 1; i < this.length - 1; i++) {
+            let xc = (this.nodes[i].x + this.nodes[i+1].x) / 2;
+            let yc = (this.nodes[i].y + this.nodes[i+1].y) / 2;
+            ctx.quadraticCurveTo(this.nodes[i].x, this.nodes[i].y, xc, yc);
+        }
+        ctx.lineTo(this.nodes[this.length-1].x, this.nodes[this.length-1].y);
+        ctx.strokeStyle = 'rgba(90, 165, 250, 0.5)';
+        ctx.lineWidth = 1.8; // تظليل الخط أثقل سيكة عشان يبان فخم وميختفيش في المسافات البعيدة
         ctx.stroke();
 
-        // ربط نهاية النبضة بأقرب نجمة في الخلفية بشكل متطاير وسريع
-        for (let s of stars) {
-            let d = Math.hypot(currentX - s.x, currentY - s.y);
-            if (d < 50) {
+        // زيادة مدى اتصال أطراف العنكبوت بالشبكة الخارجية لـ 150 بكسل عشان يلقط النقط البعيدة
+        let tip = this.nodes[this.length - 1];
+        ctx.strokeStyle = 'rgba(90, 165, 250, 0.18)';
+        for(let p of targetPoints) {
+            if(dist(tip.x, tip.y, p.x, p.y) < 150) { 
                 ctx.beginPath();
-                ctx.moveTo(currentX, currentY);
-                ctx.lineTo(s.x, s.y);
-                ctx.strokeStyle = 'rgba(100, 180, 255, 0.15)';
+                ctx.moveTo(tip.x, tip.y);
+                ctx.lineTo(p.x, p.y);
                 ctx.stroke();
             }
         }
     }
 }
 
-// إنشاء 12 نبضة دائرية متباعدة ونظيفة
-const bolts = [];
-const numBolts = 12;
-for (let i = 0; i < numBolts; i++) {
-    bolts.push(new LightBolt((i / numBolts) * Math.PI * 2));
+// 12 رجل متوازنة عشان يفضل الشكل نظيف وفخم
+const tentacles = [];
+const totalTentacles = 12;
+for (let i = 0; i < totalTentacles; i++) {
+    tentacles.push(new ElectricalTentacle((i / totalTentacles) * Math.PI * 2));
 }
 
 function loop() {
-    // مسح كلي حاد وسريع جداً يمنع تراكم أي خطوط قديمة أو بكسلة نهائياً
-    c.fillStyle = '#050508'; 
+    c.fillStyle = 'rgba(30, 30, 30, 0.22)'; // تقليل المسح سيكة عشان يدي الـ Trail مظهر أطول وأضخم
     c.fillRect(0, 0, w, h);
 
-    // رسم نجوم الخلفية
-    for (let s of stars) {
-        c.fillStyle = `rgba(255, 255, 255, ${s.brightness})`;
-        c.beginPath(); c.arc(s.x, s.y, 0.8, 0, Math.PI * 2); c.fill();
+    for (let p of targetPoints) {
+        c.fillStyle = 'rgba(255,255,255,0.35)';
+        c.beginPath(); c.arc(p.x, p.y, 0.9, 0, Math.PI * 2); c.fill();
     }
 
     if (mouse.x && last_mouse.x) {
-        // حساب السرعة الفعلية للماوس
-        let speed = Math.hypot(mouse.x - last_mouse.x, mouse.y - last_mouse.y);
-        if (speed > 50) speed = 50; // سقف أقصى لمنع التمدد المشوه
+        let speed = dist(last_mouse.x, last_mouse.y, mouse.x, mouse.y);
+        
+        // رفعنا سقف السرعة الأقصى لـ 90 عشان يمد براحته لأطراف الشاشة الكبيرة
+        if(speed > 90) speed = 90; 
 
-        // رسم النبضات النظيفة
-        bolts.forEach(b => b.draw(c, mouse.x, mouse.y, speed));
+        tentacles.forEach(t => {
+            t.update(mouse.x, mouse.y, speed);
+            t.draw(c);
+        });
 
-        // النواة المضيئة
         c.beginPath();
-        c.arc(mouse.x, mouse.y, 3, 0, Math.PI * 2);
+        c.arc(mouse.x, mouse.y, 4.5, 0, Math.PI * 2);
         c.fillStyle = '#ffffff';
         c.fill();
+    }
 
-        // تقليل السرعة تدريجياً عند التوقف عشان تلم فوراً
-        last_mouse.x += (mouse.x - last_mouse.x) * 0.1;
-        last_mouse.y += (mouse.y - last_mouse.y) * 0.1;
+    // تنعيم حركة التراجع والرجوع للسنتر عند التوقف
+    if (mouse.x && last_mouse.x) {
+        last_mouse.x += (mouse.x - last_mouse.x) * 0.08;
+        last_mouse.y += (mouse.y - last_mouse.y) * 0.08;
     }
 
     window.requestAnimFrame(loop);
 }
+
+window.addEventListener('resize', () => {
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    createPoints();
+});
 
 loop();
