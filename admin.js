@@ -4,7 +4,7 @@ window.requestAnimFrame = (function() {
 })();
 
 let canvas, c, w, h;
-// تعريف الماوس والماوس السابق بالظبط زي السطر 28 في الفيديو
+// إعداد الماوس والماوس السابق بالظبط زي السطر 28 في الفيديو
 let mouse = { x: false, y: false };
 let last_mouse = {};
 let targetPoints = [];
@@ -13,11 +13,10 @@ function init(elemId) {
     canvas = document.getElementById(elemId);
     c = canvas.getContext('2d');
     
-    // ضبط الأبعاد المبدئية بالظبط زي السطر 17 و 18 بالفيديو
     w = canvas.width = window.innerWidth;
     h = canvas.height = window.innerHeight;
     
-    // اللون الخلفي المكتوب في السطر 19
+    // سطر 19 في الفيديو: تهيئة لون الخلفية الشفاف
     c.fillStyle = "rgba(30,30,30,1)";
     c.fillRect(0, 0, w, h);
     
@@ -27,19 +26,21 @@ function init(elemId) {
 
 function createPoints() {
     targetPoints = [];
-    const numPoints = Math.floor(w * h * 0.0003);
+    // توزيع نقاط الشبكة الساكنة في الخلفية ليتصل بها البرق
+    const numPoints = Math.floor(w * h * 0.00025);
     for (let i = 0; i < numPoints; i++) {
         targetPoints.push({ x: Math.random() * w, y: Math.random() * h });
     }
 }
 
-// دالة حساب المسافة المكتوبة أسفل الفيديو (السطر 32): function dist(p1x, p1y, p2x, p2y)
+// دالة حساب المسافة المكتوبة في السطر 32 بالفيديو
 function dist(x1, y1, x2, y2) {
     return Math.hypot(x2 - x1, y2 - y1);
 }
 
 init('canvas');
 
+// تتبع حركة الماوس وحفظ الإحداثيات السابقة والحالية بدقة
 window.addEventListener('mousemove', e => {
     if (!mouse.x) {
         last_mouse.x = e.clientX;
@@ -69,32 +70,32 @@ window.addEventListener('touchmove', e => {
 class ElectricalTentacle {
     constructor(angle) {
         this.angle = angle;
-        this.length = 12; // عدد العقد لكل خيط كهربائي
+        this.length = 10; // عدد العقد لكل خيط كهربائي للحفاظ على النعومة
         this.nodes = [];
         for(let i=0; i<this.length; i++) {
-            this.nodes.push({x: w/2, y: h/2, vx: 0, vy: 0});
+            this.nodes.push({x: window.innerWidth/2, y: window.innerHeight/2, vx: 0, vy: 0});
         }
     }
 
     update(headX, headY, speed) {
-        // العقدة الأولى تتبع الرأس مباشرة
+        // العقدة الأولى تثبت في الرأس (مكان الماوس)
         this.nodes[0].x = headX;
         this.nodes[0].y = headY;
 
-        // بقية العقد تتحرك بناءً على سرعة حركة الماوس (الـ speed الفعلي)
+        // بقية العقد تندفع للخارج بناءً على سرعة حركة الماوس الحالية
         for (let i = 1; i < this.length; i++) {
             let node = this.nodes[i];
             let prev = this.nodes[i - 1];
             
-            // حساب الاستهداف مع إضافة تأثير انتشار زاويي بناءً على حركة الماوس
-            let targetX = prev.x + Math.cos(this.angle) * (speed * 1.5);
-            let targetY = prev.y + Math.sin(this.angle) * (speed * 1.5);
+            // حساب تمدد الخيط الكهربائي في زاويته الفريدة مضروباً في السرعة
+            let targetX = prev.x + Math.cos(this.angle) * (speed * 1.6);
+            let targetY = prev.y + Math.sin(this.angle) * (speed * 1.6);
             
-            // فيزياء الحركة المتجهة والجاذبية المرنة
+            // فيزياء الجاذبية المرنة (Spring & Friction) للبرق
             node.vx += (targetX - node.x) * 0.08;
             node.vy += (targetY - node.y) * 0.08;
-            node.vx *= 0.75;
-            node.vy *= 0.75;
+            node.vx *= 0.7;
+            node.vy *= 0.7;
             
             node.x += node.vx;
             node.y += node.vy;
@@ -102,6 +103,7 @@ class ElectricalTentacle {
     }
 
     draw(ctx) {
+        // رسم النبضة الكهربائية الانسيابية
         ctx.beginPath();
         ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
         for (let i = 1; i < this.length - 1; i++) {
@@ -110,15 +112,15 @@ class ElectricalTentacle {
             ctx.quadraticCurveTo(this.nodes[i].x, this.nodes[i].y, xc, yc);
         }
         ctx.lineTo(this.nodes[this.length-1].x, this.nodes[this.length-1].y);
-        ctx.strokeStyle = 'rgba(90, 165, 250, 0.45)';
+        ctx.strokeStyle = 'rgba(90, 165, 250, 0.5)';
         ctx.lineWidth = 1.5;
         ctx.stroke();
 
-        // ربط أطراف الوحش الكهربائي بالنقاط الخلفية الساكنة عند التمدد فقط
+        // التوصيل بالنقاط الخلفية (تأثير تفريغ الشحنة الكهربائية)
         let tip = this.nodes[this.length - 1];
-        ctx.strokeStyle = 'rgba(90, 165, 250, 0.12)';
+        ctx.strokeStyle = 'rgba(90, 165, 250, 0.15)';
         for(let p of targetPoints) {
-            if(dist(tip.x, tip.y, p.x, p.y) < 65) {
+            if(dist(tip.x, tip.y, p.x, p.y) < 70) {
                 ctx.beginPath();
                 ctx.moveTo(tip.x, tip.y);
                 ctx.lineTo(p.x, p.y);
@@ -128,39 +130,39 @@ class ElectricalTentacle {
     }
 }
 
-// إنشاء 16 خيط كهربائي دائري مفرود
+// إنشاء 16 خيط كهربائي ينتشرون بشكل دائري مثالي حول المركز
 const tentacles = [];
-for (let i = 0; i < 16; i++) {
-    tentacles.push(new ElectricalTentacle((i / 16) * Math.PI * 2));
+const totalTentacles = 16;
+for (let i = 0; i < totalTentacles; i++) {
+    tentacles.push(new ElectricalTentacle((i / totalTentacles) * Math.PI * 2));
 }
 
 function loop() {
-    // تفريغ الخلفية بـ Trail ناعم جداً لا يترك شوائب ميتة
-    c.fillStyle = 'rgba(3, 3, 5, 0.28)';
+    // سر المسح الناعم اللي بيخلق تأثير ذيل الإضاءة الكهربائية بدون تراكم
+    c.fillStyle = 'rgba(30, 30, 30, 0.25)';
     c.fillRect(0, 0, w, h);
 
-    // رسم النجوم/النقاط الخلفية الساكنة
-    c.fillStyle = 'rgba(255,255,255,0.4)';
+    // رسم نجوم الخلفية الثابتة
+    c.fillStyle = 'rgba(255,255,255,0.35)';
     for (let p of targetPoints) {
-        c.beginPath(); c.arc(p.x, p.y, 0.9, 0, Math.PI * 2); c.fill();
+        c.beginPath(); c.arc(p.x, p.y, 0.8, 0, Math.PI * 2); c.fill();
     }
 
     if (mouse.x && last_mouse.x) {
-        // حساب سرعة حركة الماوس الفعلية باستخدام دالة المسافة dist
+        // حساب السرعة الحركية الفعلية باستخدام دالة dist المأخوذة من الفيديو
         let speed = dist(last_mouse.x, last_mouse.y, mouse.x, mouse.y);
         
-        // منع المط اللانهائي عند الحركات الفجائية السريعة جداً
-        if(speed > 40) speed = 40; 
+        // وضع حد أقصى للمط عند القفزات السريعة جداً بالماوس
+        if(speed > 45) speed = 45; 
 
-        // تحديث ورسم الخيوط الكهربائية
         tentacles.forEach(t => {
             t.update(mouse.x, mouse.y, speed);
             t.draw(c);
         });
 
-        // رسم السنتر المضيء في مكان الماوس الحالي
+        // رسم النواة المركزية المضيئة للوحش
         c.beginPath();
-        c.arc(mouse.x, mouse.y, 3.5, 0, Math.PI * 2);
+        c.arc(mouse.x, mouse.y, 4, 0, Math.PI * 2);
         c.fillStyle = '#ffffff';
         c.fill();
     }
