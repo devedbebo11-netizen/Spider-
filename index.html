@@ -2,32 +2,16 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Premium Interactive Spider</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>spider with Dots and Links</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        body, html {
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-            background-color: #030305;
-            cursor: none; /* إخفاء الماوس العادي لإعطاء تأثير سينمائي */
-        }
-        canvas {
-            display: block;
-            width: 100vw;
-            height: 100vh;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { width: 100%; height: 100%; overflow: hidden; background-color: #030305; cursor: crosshair; }
+        canvas { display: block; width: 100vw; height: 100vh; }
     </style>
 </head>
 <body>
-
-    <canvas id="spiderCanvas"></canvas>
-
-    <script src="script.js"></script>
+    <canvas id="canvas"></canvas>
+    <script src="admin.js"></script>
 </body>
 </html>

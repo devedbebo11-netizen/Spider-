@@ -1,184 +1,143 @@
-const canvas = document.getElementById('spiderCanvas');
-const ctx = canvas.getContext('2d');
+window.requestAnimFrame = (function() {
+    return window.requestAnimationFrame || window.webkitRequestAnimationFrame || window.mozRequestAnimationFrame ||
+           window.oRequestAnimationFrame || window.msRequestAnimationFrame || function(cb) { window.setTimeout(cb, 1000 / 60); };
+})();
+
+let canvas, c, w, h;
+const mouse = { x: 0, y: 0, targetX: 0, targetY: 0 };
+let staticPoints = []; // مصفوفة لتخزين النقاط البيضاء الساكنة
+
+function init(elemId) {
+    canvas = document.getElementById(elemId);
+    c = canvas.getContext('2d');
+    resize(); // تعيين الحجم الأولي
+    window.addEventListener('resize', resize);
+    return { c: c, canvas: canvas };
+}
 
 function resize() {
-    canvas.width = window.innerWidth * window.devicePixelRatio;
-    canvas.height = window.innerHeight * window.devicePixelRatio;
-    ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
-}
-resize();
-window.addEventListener('resize', resize);
-
-const mouse = { x: window.innerWidth / 2, y: window.innerHeight / 2, targetX: window.innerWidth / 2, targetY: window.innerHeight / 2 };
-
-window.addEventListener('mousemove', (e) => {
-    mouse.targetX = e.clientX;
-    mouse.targetY = e.clientY;
-});
-
-window.addEventListener('touchmove', (e) => {
-    if(e.touches.length > 0) {
-        mouse.targetX = e.touches[0].clientX;
-        mouse.targetY = e.touches[0].clientY;
-    }
-}, { passive: true });
-
-// كلاس النقطة الفيزيائية (Verlet Particle)
-class Particle {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.oldX = x;
-        this.oldY = y;
-    }
-    update(gravityX, gravityY) {
-        const vx = (this.x - this.oldX) * 0.95; // احتكاك خفيف للانسيابية
-        const vy = (this.y - this.oldY) * 0.95;
-        this.oldX = this.x;
-        this.oldY = this.y;
-        this.x += vx + gravityX;
-        this.y += vy + gravityY;
-    }
+    w = canvas.width = window.innerWidth;
+    h = canvas.height = window.innerHeight;
+    createStaticPoints(); // إعادة إنشاء النقاط عند تغيير حجم الشاشة
 }
 
-// كلاس الحبل/الرجل المتقدمة
-class Tentacle {
-    constructor(baseX, baseY, length, count) {
-        this.particles = [];
-        this.segLength = length / count;
-        for (let i = 0; i < count; i++) {
-            this.particles.push(new Particle(baseX, baseY + i * this.segLength));
-        }
-    }
-
-    update(baseX, baseY, targetX, targetY) {
-        // تثبيت القاعدة في الجسم
-        this.particles[0].x = baseX;
-        this.particles[0].y = baseY;
-
-        // تحديث الفيزياء لكل نقطة
-        for (let i = 1; i < this.particles.length; i++) {
-            this.particles[i].update(0, 0.1); // جاذبية خفيفة جداً للأسفل لإعطاء وزن
-        }
-
-        // حل القيود الفيزيائية (Relaxation Loops) لجعل الحركة ناعمة وسائلة كأنها حبل حقيقي
-        for (let loops = 0; loops < 6; loops++) {
-            // ربط النقاط ببعضها بالدور
-            for (let i = 0; i < this.particles.length - 1; i++) {
-                const p1 = this.particles[i];
-                const p2 = this.particles[i+1];
-                const dx = p2.x - p1.x;
-                const dy = p2.y - p1.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const diff = this.segLength - dist;
-                const percent = (diff / dist) * 0.5;
-                const offsetX = dx * percent;
-                const offsetY = dy * percent;
-
-                if (i !== 0) {
-                    p1.x -= offsetX;
-                    p1.y -= offsetY;
-                }
-                p2.x += offsetX;
-                p2.y += offsetY;
-            }
-            
-            // سحب طرف الرجل الأخير برفق ناحية الهدف الخارجي (تأثير الانتشار)
-            const last = this.particles[this.particles.length - 1];
-            last.x += (targetX - last.x) * 0.1;
-            last.y += (targetY - last.y) * 0.1;
-        }
-    }
-
-    draw(ctx) {
-        ctx.beginPath();
-        ctx.moveTo(this.particles[0].x, this.particles[0].y);
-        
-        // رسم المنحنيات باستخدام البيزير ليكون الانحناء ناعم بدون زوايا حادة
-        for (let i = 1; i < this.particles.length - 1; i++) {
-            const xc = (this.particles[i].x + this.particles[i + 1].x) / 2;
-            const yc = (this.particles[i].y + this.particles[i + 1].y) / 2;
-            ctx.quadraticCurveTo(this.particles[i].x, this.particles[i].y, xc, yc);
-        }
-        
-        ctx.lineTo(this.particles[this.particles.length - 1].x, this.particles[this.particles.length - 1].y);
-        
-        // ستايل النيون الأزرق المضيء عالي الجودة
-        ctx.strokeStyle = 'rgba(120, 180, 255, 0.8)';
-        ctx.lineWidth = 2.5;
-        ctx.lineCap = 'round';
-        ctx.stroke();
-    }
-}
-
-class PremiumSpider {
-    constructor(x, y) {
-        this.x = x;
-        this.y = y;
-        this.tentacles = [];
-        this.numLegs = 12; // زيادة عدد الأرجل لتفاصيل أغنى كالفيديو
-
-        for (let i = 0; i < this.numLegs; i++) {
-            // كل رجل طولها 180 بكسل ومكونة من 16 نقطة فيزيائية للحصول على مرونة فائقة
-            this.tentacles.push(new Tentacle(this.x, this.y, 180, 16)); 
-        }
-    }
-
-    update(targetX, targetY) {
-        // حركة مرنة جداً للجسم يتبع الماوس بسلاسة (Ease-out)
-        this.x += (targetX - this.x) * 0.08;
-        this.y += (targetY - this.y) * 0.08;
-
-        this.tentacles.forEach((t, i) => {
-            const angle = (i / this.numLegs) * Math.PI * 2;
-            // حساب مكان انتشار أطراف الأرجل في الفراغ
-            const radius = 140; 
-            const tTargetX = targetX + Math.cos(angle) * radius;
-            const tTargetY = targetY + Math.sin(angle) * radius;
-
-            t.update(this.x, this.y, tTargetX, tTargetY);
+// إنشاء آلاف النقاط الساكنة العشوائية لتغطية الشاشة بالكامل
+function createStaticPoints() {
+    staticPoints = [];
+    const numStaticPoints = Math.floor(w * h * 0.001); // كثافة النقاط بناءً على حجم الشاشة
+    for (let i = 0; i < numStaticPoints; i++) {
+        staticPoints.push({
+            x: Math.random() * w,
+            y: Math.random() * h
         });
     }
+}
 
-    draw(ctx) {
-        // تفعيل الدمج اللوني المضيء (Screen Mode) زي الألعاب الفخمة
-        ctx.globalCompositeOperation = 'screen';
-        
-        // عمل توهج نيون أزرق حول الأرجل والجسم
-        ctx.shadowBlur = 18;
-        ctx.shadowColor = 'rgba(0, 100, 255, 0.9)';
+init('canvas');
 
-        this.tentacles.forEach(t => t.draw(ctx));
+const updateMouse = (x, y) => { mouse.targetX = x; mouse.targetY = y; };
+window.addEventListener('mousemove', e => updateMouse(e.clientX, e.clientY));
+window.addEventListener('touchmove', e => { if(e.touches.length > 0) updateMouse(e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+mouse.x = mouse.targetX = w / 2; mouse.y = mouse.targetY = h / 2;
 
-        // رسم قلب العنكبوت المضيء (الرأس)
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, 8, 0, Math.PI * 2);
-        ctx.fillStyle = '#ffffff';
-        ctx.shadowBlur = 25;
-        ctx.shadowColor = '#ffffff';
-        ctx.fill();
-
-        // إعادة تعيين الإعدادات للافتراضي حتى لا تؤثر على باقي الأنميشن
-        ctx.shadowBlur = 0;
-        ctx.globalCompositeOperation = 'source-over';
+class Node {
+    constructor(x, y) { this.x = x; this.y = y; this.vx = 0; this.vy = 0; }
+    update(tX, tY, spring, friction) {
+        this.vx += (tX - this.x) * spring; this.vy += (tY - this.y) * spring;
+        this.vx *= friction; this.vy *= friction;
+        this.x += this.vx; this.y += this.vy;
     }
 }
 
-const spider = new PremiumSpider(window.innerWidth / 2, window.innerHeight / 2);
+class Tentacle {
+    constructor(numNodes) {
+        this.nodes = []; for (let i = 0; i < numNodes; i++) this.nodes.push(new Node(mouse.x, mouse.y));
+        this.spring = 0.04 + Math.random() * 0.04; this.friction = 0.8 + Math.random() * 0.05;
+        this.tipLinks = []; // الروابط النشطة من طرف الخيط إلى النقاط الساكنة
+    }
+
+    update(hX, hY) {
+        this.nodes[0].update(hX, hY, this.spring, this.friction);
+        for (let i = 1; i < this.nodes.length; i++) this.nodes[i].update(this.nodes[i-1].x, this.nodes[i-1].y, this.spring, this.friction);
+        this.updateTipLinks();
+    }
+
+    // ربط طرف كل خيط بأقرب نقاط ساكنة بيضاء
+    updateTipLinks() {
+        const tip = this.nodes[this.nodes.length - 1];
+        this.tipLinks = [];
+        let points = [...staticPoints];
+        
+        // البحث عن أقرب 3 نقاط ساكنة
+        for(let j=0; j<3; j++) {
+            let nearest = null;
+            let minDist = Infinity;
+            for(let p of points) {
+                const dist = Math.hypot(tip.x - p.x, tip.y - p.y);
+                if(dist < minDist && dist < 150) { // يجب أن تكون النقطة قريبة بما يكفي
+                    minDist = dist;
+                    nearest = p;
+                }
+            }
+            if(nearest) {
+                this.tipLinks.push(nearest);
+                points.splice(points.indexOf(nearest), 1); // لا نختار نفس النقطة مرتين
+            }
+        }
+    }
+
+    draw(ctx) {
+        // رسم الخيط نفسه
+        ctx.beginPath(); ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
+        for (let i = 1; i < this.nodes.length - 1; i++) {
+            let xc = (this.nodes[i].x + this.nodes[i+1].x) / 2;
+            let yc = (this.nodes[i].y + this.nodes[i+1].y) / 2;
+            ctx.quadraticCurveTo(this.nodes[i].x, this.nodes[i].y, xc, yc);
+        }
+        ctx.lineTo(this.nodes[this.nodes.length-1].x, this.nodes[this.nodes.length-1].y);
+        ctx.strokeStyle = 'rgba(100, 150, 255, 0.4)'; ctx.lineWidth = 2; ctx.stroke();
+
+        // رسم روابط "بيانات" من طرف الخيط إلى النقاط الساكنة
+        const tip = this.nodes[this.nodes.length - 1];
+        ctx.strokeStyle = 'rgba(150, 200, 255, 0.2)';
+        ctx.lineWidth = 1;
+        for (let p of this.tipLinks) {
+            ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+            // تمييز النقاط المرتبطة بتوهج أزرق خفيف
+            ctx.fillStyle = 'rgba(150, 200, 255, 0.8)'; ctx.beginPath(); ctx.arc(p.x, p.y, 2.5, 0, Math.PI*2); ctx.fill();
+        }
+
+        // رسم طرف الخيط كنقطة مضيئة
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)'; ctx.beginPath(); ctx.arc(tip.x, tip.y, 2.5, 0, Math.PI*2); ctx.fill();
+    }
+}
+
+const tentacles = [];
+for (let i = 0; i < 16; i++) tentacles.push(new Tentacle(20)); // المزيد من الأرجل لشبكة بيانات أكثر كثافة
+let angle = 0;
 
 function loop() {
-    // خلفية سوداء شبه شفافة لترك أثر (Motion Blur / Trail) سينمائي خلف الحركة
-    ctx.fillStyle = 'rgba(3, 3, 5, 0.25)';
-    ctx.fillRect(0, 0, window.innerWidth, window.innerHeight);
+    // رسم طبقة شفافة لعمل تأثير الـ Trail دون تغطية كل شيء
+    c.fillStyle = 'rgba(3, 3, 5, 0.2)';
+    c.fillRect(0, 0, w, h);
 
-    // تنعيم حركة الماوس
-    mouse.x += (mouse.targetX - mouse.x) * 0.1;
-    mouse.y += (mouse.targetY - mouse.y) * 0.1;
+    // رسم كافة النقاط الساكنة البيضاء الصغيرة في كل فريم (على خلفية سوداء)
+    c.fillStyle = 'rgba(255, 255, 255, 0.3)'; // نقاط بيضاء خافتة كشبكة خلفية
+    for (let p of staticPoints) {
+        c.beginPath(); c.arc(p.x, p.y, 1.2, 0, Math.PI*2); c.fill();
+    }
 
-    spider.update(mouse.x, mouse.y);
-    spider.draw(ctx);
+    mouse.x += (mouse.targetX - mouse.x) * 0.1; mouse.y += (mouse.targetY - mouse.y) * 0.1;
+    angle += 0.06;
+    let headX = mouse.x + Math.cos(angle) * 10; let headY = mouse.y + Math.sin(angle) * 10;
 
-    requestAnimationFrame(loop);
+    tentacles.forEach(t => { t.update(headX, headY); t.draw(c); });
+
+    // رسم النواة المركزية المضيئة
+    c.beginPath(); c.arc(headX, headY, 5, 0, Math.PI*2);
+    c.fillStyle = '#ffffff'; c.shadowBlur = 20; c.shadowColor = '#6495ed'; c.fill(); c.shadowBlur = 0;
+
+    window.requestAnimFrame(loop);
 }
 
 loop();
