@@ -16,13 +16,11 @@ function init(elemId) {
 }
 
 function resize() {
-    // حل مشكلة البكسلة وجودة الـ Retina على الآيفون بالـ Device Pixel Ratio
     const dpr = window.devicePixelRatio || 1;
     w = canvas.width = window.innerWidth * dpr;
     h = canvas.height = window.innerHeight * dpr;
     c.scale(dpr, dpr);
     
-    // ضبط الحجم الفعلي بالـ CSS
     canvas.style.width = window.innerWidth + 'px';
     canvas.style.height = window.innerHeight + 'px';
     
@@ -31,8 +29,8 @@ function resize() {
 
 function createStaticPoints() {
     staticPoints = [];
-    // تقليل العدد وضبط التوزيع عشان الحسابات متقفلش المتصفح
-    const numStaticPoints = Math.floor(window.innerWidth * window.innerHeight * 0.0005); 
+    // توزيع نقاط بيضاء متزنة ومتباعدة في الخلفية
+    const numStaticPoints = Math.floor(window.innerWidth * window.innerHeight * 0.0004); 
     for (let i = 0; i < numStaticPoints; i++) {
         staticPoints.push({
             x: Math.random() * window.innerWidth,
@@ -53,18 +51,23 @@ mouse.y = mouse.targetY = window.innerHeight / 2;
 class Node {
     constructor(x, y) { this.x = x; this.y = y; this.vx = 0; this.vy = 0; }
     update(tX, tY, spring, friction) {
-        this.vx += (tX - this.x) * spring; this.vy += (tY - this.y) * spring;
-        this.vx *= friction; this.vy *= friction;
-        this.x += this.vx; this.y += this.vy;
+        this.vx += (tX - this.x) * spring; 
+        this.vy += (tY - this.y) * spring;
+        this.vx *= friction; 
+        this.vy *= friction;
+        this.x += this.vx; 
+        this.y += this.vy;
     }
 }
 
 class Tentacle {
-    constructor(numNodes) {
+    constructor(angleOffset) {
         this.nodes = []; 
-        for (let i = 0; i < numNodes; i++) this.nodes.push(new Node(mouse.x, mouse.y));
-        this.spring = 0.02 + Math.random() * 0.03; // حركة أبطأ وأنعم زي الـ Rust
-        this.friction = 0.85 + Math.random() * 0.05;
+        // 10 عقد فقط لكل رجل للحفاظ على خطوط مشدودة وقصيرة
+        for (let i = 0; i < 10; i++) this.nodes.push(new Node(mouse.x, mouse.y));
+        this.spring = 0.03 + Math.random() * 0.02; 
+        this.friction = 0.8;
+        this.angleOffset = angleOffset; // الزاوية الخاصة بالرجل حول الجسم
     }
 
     update(hX, hY) {
@@ -74,7 +77,8 @@ class Tentacle {
         }
     }
 
-    draw(ctx) {
+    draw(ctx, hX, hY) {
+        // رسم الخيط الرئيسي للرجل
         ctx.beginPath(); 
         ctx.moveTo(this.nodes[0].x, this.nodes[0].y);
         for (let i = 1; i < this.nodes.length - 1; i++) {
@@ -84,51 +88,65 @@ class Tentacle {
         }
         ctx.lineTo(this.nodes[this.nodes.length-1].x, this.nodes[this.nodes.length-1].y);
         
-        // لون نيون فخم ورفيع جداً يمنع بهت الشاشة
-        ctx.strokeStyle = 'rgba(74, 144, 226, 0.25)'; 
-        ctx.lineWidth = 1; 
+        ctx.strokeStyle = 'rgba(74, 144, 226, 0.3)'; 
+        ctx.lineWidth = 1.2; 
         ctx.stroke();
 
-        // ربط الأطراف بشكل منسق مع النقاط القريبة دون تداخل عشوائي
+        // امتداد ذكي للطرف يربطه بالنقاط البيضاء القريبة في نفس اتجاه زاوية الرجل
         const tip = this.nodes[this.nodes.length - 1];
-        ctx.strokeStyle = 'rgba(74, 144, 226, 0.08)';
+        
+        ctx.strokeStyle = 'rgba(74, 144, 226, 0.1)';
         for (let p of staticPoints) {
             const dist = Math.hypot(tip.x - p.x, tip.y - p.y);
-            if (dist < 100) { // لو النقطة قريبة يعمل خيط طاقة خفيف جداً
-                ctx.beginPath(); ctx.moveTo(tip.x, tip.y); ctx.lineTo(p.x, p.y); ctx.stroke();
+            // بيربط فقط بالنقاط القريبة جداً (أقل من 80 بكسل) عشان نمنع خيوط الـ Orbit الطويلة
+            if (dist < 80) { 
+                ctx.beginPath(); 
+                ctx.moveTo(tip.x, tip.y); 
+                ctx.lineTo(p.x, p.y); 
+                ctx.stroke();
             }
         }
     }
 }
 
 const tentacles = [];
-// زيادة عدد الأرجل لـ 24 مع تقليل العقد لسرعة الـ Rendering
-for (let i = 0; i < 24; i++) tentacles.push(new Tentacle(12)); 
-let angle = 0;
+const numTentacles = 16; // 16 رجل متزنة جداً
+for (let i = 0; i < numTentacles; i++) {
+    const angleOffset = (i / numTentacles) * Math.PI * 2;
+    tentacles.push(new Tentacle(angleOffset)); 
+}
 
 function loop() {
-    // مسح الشاشة بالكامل مع الحفاظ على ذيل خفيف (Motion Blur) لتجنب الخطوط الميتة
-    c.fillStyle = 'rgba(3, 3, 5, 0.15)';
+    // زيادة مسح الشاشة لـ 0.35 عشان يمسح الخيوط القديمة فوراً ويمنع تراكم الدوائر
+    c.fillStyle = 'rgba(3, 3, 5, 0.35)';
     c.fillRect(0, 0, window.innerWidth, window.innerHeight);
 
-    // رسم النجوم/النقاط الخلفية
+    // رسم النقاط البيضاء في الخلفية بثبات
     c.fillStyle = 'rgba(255, 255, 255, 0.4)';
     for (let p of staticPoints) {
-        c.beginPath(); c.arc(p.x, p.y, 0.8, 0, Math.PI*2); c.fill();
+        c.beginPath(); 
+        c.arc(p.x, p.y, 0.8, 0, Math.PI*2); 
+        c.fill();
     }
 
-    mouse.x += (mouse.targetX - mouse.x) * 0.05; 
-    mouse.y += (mouse.targetY - mouse.y) * 0.05;
-    
-    angle += 0.02;
-    let headX = mouse.x + Math.cos(angle) * 15; 
-    let headY = mouse.y + Math.sin(angle) * 15;
+    // تتبع ناعم ومباشر للماوس بدون أي دورتين أو تموج ذاتي
+    mouse.x += (mouse.targetX - mouse.x) * 0.08; 
+    mouse.y += (mouse.targetY - mouse.y) * 0.08;
 
-    tentacles.forEach(t => { t.update(headX, headY); t.draw(c); });
+    // الرأس هو مكان الماوس بالظبط
+    let headX = mouse.x;
+    let headY = mouse.y;
 
-    // النواة المركزية
-    c.beginPath(); c.arc(headX, headY, 3, 0, Math.PI*2);
-    c.fillStyle = '#ffffff'; c.fill();
+    tentacles.forEach(t => { 
+        t.update(headX, headY); 
+        t.draw(c, headX, headY); 
+    });
+
+    // رسم السنتر الأبيض المضيء
+    c.beginPath(); 
+    c.arc(headX, headY, 3.5, 0, Math.PI*2);
+    c.fillStyle = '#ffffff'; 
+    c.fill();
 
     window.requestAnimFrame(loop);
 }
